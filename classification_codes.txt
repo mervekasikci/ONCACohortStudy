@@ -1,0 +1,326 @@
+
+library(caret)
+library(GMDH2)
+library(fastDummies)
+library(h2o)
+library(dplyr)
+library(pROC)
+
+set.seed(123)
+
+data <- read.csv("~data.csv")
+
+# Split the data into training, validation, and testing sets (60%, 20%, 20%)
+train_index <- createDataPartition(data2$treatment, p = 0.6, list = FALSE)
+train_data <- data2[train_index, ]
+temp_data <- data2[-train_index, ]
+
+validation_index <- createDataPartition(temp_data$treatment, p = 0.5, list = FALSE)
+validation_data <- temp_data[validation_index, ]
+test_data <- temp_data[-validation_index, ]
+
+dim(train_data)
+dim(validation_data)
+dim(test_data)
+
+dim(data)[1]*0.60
+dim(data)[1]*0.20
+
+summary(train_data$treatment)/dim(train_data)[1]
+summary(validation_data$treatment)/dim(validation_data)[1]
+summary(test_data$treatment)/dim(test_data)[1]
+
+h2o.init()
+train_data_h2o <- as.h2o(train_data)
+validation_data_h2o <- as.h2o(validation_data)
+test_data_h2o <- as.h2o(test_data)
+
+
+############################## Grid Search #############################
+
+######################################################################## 
+################################## RF ################################## 
+######################################################################## 
+
+start_rf <- Sys.time()
+hyper_grid.rf <- list(ntrees = c(50, 100, 150, 200),
+                      max_depth = c(3, 5, 7, 10))
+
+system.time(grid_cartesian <- h2o.grid(algorithm = "randomForest",
+                                       grid_id = "rf_grid1",
+                                       x = 2:11, y = 1, 
+                                       seed = 123,
+                                       training_frame = train_data_h2o,
+                                       validation_frame = validation_data_h2o,
+                                       stopping_metric = "AUC", 
+                                       hyper_params = hyper_grid.rf,
+                                       search_criteria = list(strategy = "Cartesian")))
+
+grid_perf_rf <- h2o.getGrid(grid_id = "rf_grid1", 
+                            sort_by = "auc", 
+                            decreasing = FALSE)
+
+best_model_rf <- h2o.getModel(grid_perf_rf@model_ids[[1]])
+
+valid_rf <- as.data.frame(h2o.predict(best_model_rf, validation_data_h2o))
+perf_h2o_rf <- confMat(table(valid_rf$predict,validation_data$treatment), verbose = FALSE, positive = "2")$all
+roc_rf <- roc(response=validation_data$treatment, predictor=valid_rf$p1, ci=TRUE)
+perf_h2o_rf <- rbind(perf_h2o_rf, roc_rf$auc)
+
+system.time(grid_cartesian <- h2o.grid(algorithm = "randomForest",
+                                       grid_id = "rf_grid_plus",
+                                       x = 2:dim(train_data_h2o)[2], y = 1, 
+                                       seed = 123,
+                                       training_frame = train_data_h2o,
+                                       validation_frame = validation_data_h2o,
+                                       stopping_metric = "AUC", 
+                                       hyper_params = hyper_grid.rf,
+                                       search_criteria = list(strategy = "Cartesian")))
+
+grid_perf_rf_plus <- h2o.getGrid(grid_id = "rf_grid_plus", 
+                                 sort_by = "auc", 
+                                 decreasing = FALSE)
+
+best_model_rf_plus <- h2o.getModel(grid_perf_rf_plus@model_ids[[1]])
+valid_rf_plus <- as.data.frame(h2o.predict(best_model_rf_plus, validation_data_h2o))
+perf_h2o_rf_plus <- confMat(table(valid_rf_plus$predict,validation_data$treatment), verbose = FALSE, positive = "2")$all
+roc_rf_plus <- roc(response=validation_data$treatment, predictor=valid_rf_plus$p1, ci=TRUE)
+perf_h2o_rf_plus <- rbind(perf_h2o_rf_plus, roc_rf_plus$auc)
+
+roc.test(roc_rf, roc_rf_plus)
+
+end_rf <- Sys.time()
+end_rf-start_rf
+
+
+
+
+# Create the SHAP row explanation plot
+#shap_explain_row_plot <- h2o.shap_explain_row_plot(best_model_rf_plus, train_data_h2o, row_index = 1)
+#print(shap_explain_row_plot)
+
+#shap_plot <- h2o.shap_summary_plot(best_model_rf_plus, train_data_h2o)
+#shap_plot
+
+######################################################################## 
+############################# Deep Learning ############################
+######################################################################## 
+
+start_dl <- Sys.time()
+hidden_opt<-list(c(rep(10,2)), c(rep(10,3)), c(rep(10,5)), c(rep(10,10)),
+                 c(rep(20,2)), c(rep(20,3)), c(rep(20,5)), c(rep(20,10)),
+                 c(rep(50,2)), c(rep(50,3)), c(rep(50,5)), c(rep(50,10)))  
+
+hyper_param.dl <- list(hidden=hidden_opt,
+                       epochs = c(5, 10))  #  max_w2 = 10, l1=1e-5,
+
+grid <- h2o.grid("deeplearning", x = 2:11, y = 1, 
+                 training_frame = train_data_h2o,
+                 validation_frame = validation_data_h2o,
+                 hyper_params = hyper_param.dl, 
+                 seed=123)
+
+summary(grid)
+
+model_ids <- grid@model_ids
+
+best_model_id <- grid@model_ids[[1]]
+best_model_dl <- h2o.getModel(best_model_id)
+
+valid_dl <- as.data.frame(h2o.predict(best_model_dl, validation_data_h2o))
+perf_h2o_dl <- confMat(table(valid_dl$predict,validation_data$treatment), verbose = FALSE, positive = "2")$all
+roc_dl <- roc(response=validation_data$treatment, predictor=valid_dl$p1, ci=TRUE)
+perf_h2o_dl <- rbind(perf_h2o_dl, roc_dl$auc)
+
+
+grid_plus <- h2o.grid("deeplearning", x = 2:dim(train_data_h2o)[2], y = 1, 
+                      training_frame = train_data_h2o, validation_frame = validation_data_h2o,
+                      hyper_params = hyper_param.dl, 
+                      seed=123)
+
+summary(grid_plus)
+
+model_ids <- grid_plus@model_ids
+
+best_model_id_plus <- grid_plus@model_ids[[1]]
+best_model_plus <- h2o.getModel(best_model_id_plus)
+
+valid_dl_plus <- as.data.frame(h2o.predict(best_model_plus, validation_data_h2o))
+perf_h2o_dl_plus <- confMat(table(valid_dl_plus$predict,validation_data$treatment), verbose = FALSE, positive = "2")$all
+roc_dl_plus <- roc(response=validation_data$treatment, predictor=valid_dl_plus$p1, ci=TRUE)
+perf_h2o_dl_plus <- rbind(perf_h2o_dl_plus, roc_dl_plus$auc)
+
+roc.test(roc_dl, roc_dl_plus)
+
+#perf_test_dl <- h2o.performance(best_model, test_data_h2o)
+#cm_test_dl <-as.table(as.matrix(perf_test_dl@metrics$cm$table[1:2,1:2]))
+#perf_h2o_test <- confMat(cm_test_dl, verbose = FALSE, positive = "2")$all
+
+test_dl_plus <- as.data.frame(h2o.predict(best_model_plus, test_data_h2o))
+perf_h2o_dl_plus_test <- confMat(table(test_dl_plus$predict,test_data$treatment), verbose = FALSE, positive = "2")$all
+roc_dl_plus_test <- roc(response=test_data$treatment, predictor=test_dl_plus$p1, ci=TRUE)
+perf_h2o_dl_plus_test <- rbind(perf_h2o_dl_plus_test, roc_dl_plus_test$auc)
+
+end_dl <- Sys.time()
+end_dl-start_dl
+
+
+
+######################################################################## 
+################################## ANN #################################
+######################################################################## 
+
+start_ann <- Sys.time()
+hidden_opt <- list(c(rep(10,1)), c(rep(20,1)), c(rep(50,1)))
+
+hyper_param.ann <- list(hidden=hidden_opt,
+                        epochs = 1)  
+
+grid <- h2o.grid("deeplearning", x = 2:11, y = 1, 
+                 training_frame = train_data_h2o,
+                 validation_frame = validation_data_h2o,
+                 hyper_params = hyper_param.ann, 
+                 seed=123)
+
+summary(grid)
+
+model_ids <- grid@model_ids
+
+best_model_id <- grid@model_ids[[1]]
+best_model_ann <- h2o.getModel(best_model_id)
+
+valid_ann <- as.data.frame(h2o.predict(best_model_ann, validation_data_h2o))
+perf_h2o_ann <- confMat(table(valid_ann$predict,validation_data$treatment), verbose = FALSE, positive = "2")$all
+roc_ann <- roc(response=validation_data$treatment, predictor=valid_ann$p1, ci=TRUE)
+perf_h2o_ann <- rbind(perf_h2o_ann, roc_ann$auc)
+
+#perf_validation_ann <- h2o.performance(best_model_ann, valid=TRUE)
+#cm_validation_ann<-as.table(as.matrix(perf_validation_ann@metrics$cm$table[1:2,1:2]))
+#perf_h2o_ann <- confMat(cm_validation_ann, verbose = FALSE, positive = "2")$all
+
+
+grid_plus_ann <- h2o.grid("deeplearning", x = 2:dim(train_data_h2o)[2], y = 1, 
+                          training_frame = train_data_h2o,
+                          validation_frame = validation_data_h2o,
+                          hyper_params = hyper_param.ann, 
+                          seed=123)
+
+summary(grid_plus_ann)
+
+model_ids_plus_ann <- grid_plus_ann@model_ids
+
+best_model_id_plus_ann <- grid_plus_ann@model_ids[[1]]
+best_model_ann_plus <- h2o.getModel(best_model_id_plus_ann)
+
+valid_ann_plus <- as.data.frame(h2o.predict(best_model_ann_plus, validation_data_h2o))
+perf_h2o_ann_plus <- confMat(table(valid_ann_plus$predict,validation_data$treatment), verbose = FALSE, positive = "2")$all
+roc_ann_plus <- roc(response=validation_data$treatment, predictor=valid_ann_plus$p1, ci=TRUE)
+perf_h2o_ann_plus <- rbind(perf_h2o_ann_plus, roc_ann_plus$auc)
+
+roc.test(roc_ann, roc_ann_plus)
+
+end_ann <- Sys.time()
+end_ann-start_ann
+
+
+######################################################################## 
+################################## GLM #################################
+######################################################################## 
+
+start_glm <- Sys.time()
+
+glm_model <- h2o.glm(family = "binomial",
+                     x = 2:11, y = 1, 
+                     training_frame = train_data_h2o,
+                     validation_frame = validation_data_h2o,
+                     lambda_search = TRUE,
+                     seed=123)
+
+valid_glm <- as.data.frame(h2o.predict(glm_model, validation_data_h2o))
+perf_h2o_glm <- confMat(table(valid_glm$predict,validation_data$treatment), verbose = FALSE, positive = "2")$all
+roc_glm <- roc(response=validation_data$treatment, predictor=valid_glm$p1, ci=TRUE)
+perf_h2o_glm <- rbind(perf_h2o_glm, roc_glm$auc)
+
+glm_model_plus <- h2o.glm(family = "binomial",
+                          x = 2:dim(train_data_h2o)[2], y = 1, 
+                          training_frame = train_data_h2o,
+                          validation_frame = validation_data_h2o,
+                          lambda_search = TRUE,
+                          seed=123)
+
+valid_glm_plus <- as.data.frame(h2o.predict(glm_model_plus, validation_data_h2o))
+perf_h2o_glm_plus <- confMat(table(valid_glm_plus$predict,validation_data$treatment), verbose = FALSE, positive = "2")$all
+roc_glm_plus <- roc(response=validation_data$treatment, predictor=valid_glm_plus$p1, ci=TRUE)
+perf_h2o_glm_plus <- rbind(perf_h2o_glm_plus, roc_glm_plus$auc)
+
+roc.test(roc_glm, roc_glm_plus)
+
+end_glm <- Sys.time()
+end_glm-start_glm
+
+
+######################################################################## 
+############################### Naive Bayes ############################
+######################################################################## 
+
+start_nb <- Sys.time()
+
+hyper_param_nb <- list(
+  laplace = c(0,0.5,1,2,3)
+)
+
+grid_nb <- h2o.grid(algorithm = "naivebayes",
+                    x = 2:11,
+                    y = 1,
+                    training_frame = train_data_h2o,
+                    validation_frame = validation_data_h2o,
+                    seed = 123,
+                    hyper_params = hyper_param_nb)
+
+summary(grid_nb)
+
+model_ids_nb <- grid_nb@model_ids
+
+best_model_id_nb <- model_ids_nb[[1]]
+best_model_nb <- h2o.getModel(best_model_id_nb)
+
+valid_nb <- as.data.frame(h2o.predict(best_model_nb, validation_data_h2o))
+perf_h2o_nb <- confMat(table(valid_nb$predict,validation_data$treatment), verbose = FALSE, positive = "2")$all
+roc_nb <- roc(response=validation_data$treatment, predictor=valid_nb$p1, ci=TRUE)
+perf_h2o_nb <- rbind(perf_h2o_nb, roc_nb$auc)
+
+
+grid_nb_plus <- h2o.grid(algorithm = "naivebayes",
+                         x = 2:dim(train_data_h2o)[2], 
+                         y = 1,
+                         training_frame = train_data_h2o,
+                         validation_frame = validation_data_h2o,
+                         seed = 123,
+                         hyper_params = hyper_param_nb)
+
+summary(grid_nb_plus)
+
+grid_nb_plus <- grid_nb_plus@model_ids
+
+best_model_id_nb_plus <- grid_nb_plus[[1]]
+best_model_nb_plus <- h2o.getModel(best_model_id_nb_plus)
+
+valid_nb_plus <- as.data.frame(h2o.predict(best_model_nb_plus, validation_data_h2o))
+perf_h2o_nb_plus <- confMat(table(valid_nb_plus$predict,validation_data$treatment), verbose = FALSE, positive = "2")$all
+roc_nb_plus <- roc(response=validation_data$treatment, predictor=valid_nb_plus$p1, ci=TRUE)
+perf_h2o_nb_plus <- rbind(perf_h2o_nb_plus, roc_nb_plus$auc)
+
+roc.test(roc_nb, roc_nb_plus)
+
+end_nb <- Sys.time()
+end_nb-start_nb
+
+
+validation_results <- cbind(perf_h2o_rf, perf_h2o_rf_plus,
+                            perf_h2o_ann, perf_h2o_ann_plus,
+                            perf_h2o_dl, perf_h2o_dl_plus,
+                            perf_h2o_glm, perf_h2o_glm_plus,
+                            perf_h2o_nb, perf_h2o_nb_plus)
+colnames(validation_results) <- c("RF", "RF-Plus", "ANN", "ANN-Plus", "DL", "DL-Plus",
+                                  "EN", "EN-Plus", "NB", "NB-Plus")
+rownames(validation_results)[17] <- "AUC"
