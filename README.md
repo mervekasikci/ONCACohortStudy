@@ -1,0 +1,1 @@
+This repo aimed to develop a ML-based screening tool for a two-step prediction of the need for and type of nutritional therapy (enteral, parenteral, or combined) using Nutrition Risk Screening-2002 (NRS-2002) and other demographic parameters from the Optimal Nutrition Care for All (ONCA) national cohort data.
