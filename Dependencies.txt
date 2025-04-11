@@ -1,0 +1,2 @@
+install.packages(c("caret", "fastDummies", "dplyr", "pROC", "shapviz", "GMDH2"))
+install.packages("h2o", repos = "http://h2o-release.s3.amazonaws.com/h2o/rel-yates/4/R", type = "source")
