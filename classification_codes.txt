@@ -10,6 +10,36 @@ set.seed(123)
 
 data <- read.csv("~data.csv")
 
+############################ Pre-processing ############################
+
+########################################################################
+################### Identifying variables as factors ###################
+########################################################################
+
+data$BMI <- as.factor(data$BMI)
+data$Weight_loss_within_3months <- as.factor(data$Weight_loss_within_3months)
+data$Reduced_dietary_intake <- as.factor(data$Reduced_dietary_intake)
+data$Severe_illness<- as.factor(data$Severe_illness)
+data$Impaired_nutritional_status <- as.factor(data$Impaired_nutritional_status)
+data$Severity_of_disease<- as.factor(data$Severity_of_disease)
+data$Age <- as.factor(data$Age)
+data$Gender <- as.factor(data$Gender)
+data$Unit<- as.factor(data$Unit)
+data$Cancer <- as.factor(data$Cancer)
+
+########################################################################
+######################### Dummy variable coding ########################
+########################################################################
+
+data <- dummy_cols(data, select_columns = "Impaired_nutritional_status")
+data <- subset(data, select=-c(Impaired_nutritional_status, Impaired_nutritional_status_0))
+
+data <- dummy_cols(data, select_columns = "Severity_of_disease")
+data <- subset(data, select=-c(Severity_of_disease, Severity_of_disease_0))
+
+data <- dummy_cols(data, select_columns = "Unit")
+data <- subset(data, select=-c(Unit, Unit_1))
+
 # Split the data into training, validation, and testing sets (60%, 20%, 20%)
 train_index <- createDataPartition(data2$treatment, p = 0.6, list = FALSE)
 train_data <- data2[train_index, ]
