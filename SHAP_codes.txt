@@ -42,11 +42,7 @@ fit <- h2o.gbm(
   stopping_rounds = 10,
   score_each_iteration = TRUE
 )
-
-sample <- data %>%
-  sample_n(191028) %>% 
-  as.h2o()
-shp <- shapviz(fit, X_pred = sample) 
+shp <- shapviz(fit, X_pred = data) 
 sv_importance(shp, show_numbers = FALSE, kind = "bee")
 
 
