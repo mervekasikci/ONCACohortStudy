@@ -1,0 +1,52 @@
+library(shapviz)
+library(tidyverse)
+library(fastDummies)
+library(h2o)
+library(dplyr)
+library(shapviz)
+
+set.seed(123)
+
+data <- read.csv("~data.csv")
+
+data$BMI <- as.factor(data$BMI)
+data$Weight_loss_within_3months <- as.factor(data$Weight_loss_within_3months)
+data$Reduced_dietary_intake <- as.factor(data$Reduced_dietary_intake)
+data$Severe_illness<- as.factor(data$Severe_illness)
+data$Impaired_nutritional_status <- as.factor(data$Impaired_nutritional_status)
+data$Severity_of_disease<- as.factor(data$Severity_of_disease)
+data$Age <- as.factor(data$Age)
+data$Gender <- as.factor(data$Gender)
+data$Unit<- as.factor(data$Unit)
+data$Cancer <- as.factor(data$Cancer)
+
+data <- dummy_cols(data, select_columns = "Impaired_nutritional_status")
+data <- subset(data, select=-c(Impaired_nutritional_status, Impaired_nutritional_status_0))
+
+data <- dummy_cols(data, select_columns = "Severity_of_disease")
+data <- subset(data, select=-c(Severity_of_disease, Severity_of_disease_0))
+
+data <- dummy_cols(data, select_columns = "Unit")
+data <- subset(data, select=-c(Unit, Unit_1))
+
+h2o.init()
+data_h2o <- as.h2o(data)
+
+fit <- h2o.gbm(
+  x = 2:dim(data_h2o)[2], y = 1, seed=123,
+  training_frame = data_h2o,
+  nfolds = 5,
+  learn_rate = 0.05,
+  max_depth = 4,
+  ntrees = 10000,
+  stopping_rounds = 10,
+  score_each_iteration = TRUE
+)
+
+sample <- data %>%
+  sample_n(191028) %>% 
+  as.h2o()
+shp <- shapviz(fit, X_pred = sample 
+sv_importance(shp, show_numbers = FALSE, kind = "bee")
+
+
